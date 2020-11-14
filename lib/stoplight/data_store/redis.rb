@@ -4,6 +4,10 @@ module Stoplight
   module DataStore
     # @see Base
     class Redis < Base
+      require 'stoplight/data_store/redis/legacy_key_format_support'
+
+      prepend LegacyKeyFormatSupport
+
       KEY_PREFIX = 'stoplight'.freeze
       KEY_SEPARATOR = ':'.freeze
 
@@ -25,7 +29,7 @@ module Stoplight
       end
 
       def get_all(light)
-        failures, state = @redis.multi do
+        _, failures, state = @redis.multi do
           query_failures(light)
           @redis.hget(states_key, light.name)
         end
@@ -41,6 +45,32 @@ module Stoplight
       end
 
       def record_failure(light, failure)
+        failures_key = failures_key(light)
+
+        _, size, = @redis.multi do
+          @redis.zadd(failures_key, failure.time.to_i, failure.to_json)
+          @redis.zcard(failures_key)
+
+          remove_old_failures(light, failure)
+        end
+
+        size
+      end
+
+      def migrate_failures(light)
+        failures, = @redis.multi do
+          @redis.lrange(failures_key(light), 0, -1)
+          @redis.del(failures_key(light))
+        end
+
+        normalize_failures(failures, light.error_notifier).each do |failure|
+          @redis.zadd(failures_key(light), failure.time.to_i, failure.to_json)
+        end
+      end
+
+      # @param light [Stoplight::Light]
+      # @param failure [Stoplight::Failure]
+      def record_failure_without_threshold(light, failure)
         size, = @redis.multi do
           @redis.lpush(failures_key(light), failure.to_json)
           @redis.ltrim(failures_key(light), 0, light.threshold - 1)
@@ -50,7 +80,7 @@ module Stoplight
       end
 
       def clear_failures(light)
-        failures, = @redis.multi do
+        _, failures, = @redis.multi do
           query_failures(light)
           @redis.del(failures_key(light))
         end
@@ -76,10 +106,25 @@ module Stoplight
         normalize_state(state)
       end
 
+      # @param light [Stoplight::Light]
+      # @return [Boolean]
+      def legacy_key_format?(light)
+        failures_key = failures_key(light)
+        @redis.type(failures_key) == 'list'
+      end
+
       private
 
+      def remove_old_failures(light, failure)
+        failures_key = failures_key(light)
+        window_to_remove = failure.time.to_i - light.window_size
+
+        @redis.zremrangebyscore(failures_key, 0, window_to_remove)
+        @redis.zremrangebyrank(failures_key, 0, -light.threshold - 1)
+      end
+
       def query_failures(light)
-        @redis.lrange(failures_key(light), 0, -1)
+        @redis.zrange(failures_key(light), 0, -1)
       end
 
       def normalize_failures(failures, error_notifier)

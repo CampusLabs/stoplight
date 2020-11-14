@@ -122,6 +122,12 @@ RSpec.describe Stoplight::Light do
     end
   end
 
+  describe '#window_size' do
+    it 'is initially the default' do
+      expect(light.window_size).to eql(Stoplight::Default::WINDOW_SIZE)
+    end
+  end
+
   describe '#with_cool_off_time' do
     it 'sets the cool off time' do
       cool_off_time = 1.2
@@ -175,6 +181,28 @@ RSpec.describe Stoplight::Light do
       threshold = 12
       light.with_threshold(threshold)
       expect(light.threshold).to eql(threshold)
+    end
+  end
+
+  describe '#with_window_size' do
+    context 'when using legacy key format' do
+      it 'raises the error' do
+        expect(light.data_store).to receive(:legacy_key_format?).with(light) { true }
+
+        expect do
+          light.with_window_size(3)
+        end.to raise_error(ArgumentError)
+      end
+    end
+
+    context 'when using new format' do
+      it 'sets the window_size' do
+        expect(light.data_store).to receive(:legacy_key_format?).with(light) { false }
+
+        window_size = 12
+        light.with_window_size(window_size)
+        expect(light.window_size).to eql(window_size)
+      end
     end
   end
 end

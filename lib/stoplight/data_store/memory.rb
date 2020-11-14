@@ -30,7 +30,9 @@ module Stoplight
         synchronize do
           n = light.threshold - 1
           @failures[light.name] = @failures[light.name].first(n)
-          @failures[light.name].unshift(failure).size
+          @failures[light.name].unshift(failure)
+
+          remove_old_failures(light, failure)
         end
       end
 
@@ -48,6 +50,20 @@ module Stoplight
 
       def clear_state(light)
         synchronize { @states.delete(light.name) }
+      end
+
+      def legacy_key_format?(_light)
+        false
+      end
+
+      private
+
+      def remove_old_failures(light, failure)
+        @failures[light.name].select! do |item|
+          item.time.to_i > failure.time.to_i - light.window_size
+        end
+
+        @failures[light.name].size
       end
     end
   end

@@ -22,6 +22,8 @@ module Stoplight
     attr_reader :notifiers
     # @return [Fixnum]
     attr_reader :threshold
+    # @return [Float]
+    attr_reader :window_size
 
     class << self
       # @return [DataStore::Base]
@@ -49,6 +51,12 @@ module Stoplight
       @fallback = Default::FALLBACK
       @notifiers = self.class.default_notifiers
       @threshold = Default::THRESHOLD
+      @window_size = Default::WINDOW_SIZE
+    end
+
+    # @return [Boolean]
+    def legacy_key_format?
+      @legacy_key_format
     end
 
     # @param cool_off_time [Float]
@@ -98,6 +106,17 @@ module Stoplight
     # @return [self]
     def with_threshold(threshold)
       @threshold = threshold
+      self
+    end
+
+    # @param window_size [Integer]
+    # @return [self]
+    def with_window_size(window_size)
+      if data_store.legacy_key_format?(self)
+        raise ArgumentError, 'not supported'
+      end
+
+      @window_size = window_size
       self
     end
   end
